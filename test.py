@@ -8,7 +8,7 @@ def test():
     x = np.sort(x, axis=0)
     se = SEiso()
     K = se.evaluate(x, x, [np.log(5), np.log(1.)])
-    plt.pcolor(K, cmap='YlGnBu')
+    plt.pcolor(K)
     plt.colorbar()
     plt.gca().invert_yaxis()
     plt.show()

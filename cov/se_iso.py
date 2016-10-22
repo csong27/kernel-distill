@@ -31,8 +31,4 @@ class SEiso(object):
 
 
 if __name__ == '__main__':
-    x = np.random.normal(size=(10, 1))
-    se = SEiso()
-    hyp = [np.log(0.1), np.log(0.1)]
-    print se.evaluate(x, x, hyp)
-
+    pass

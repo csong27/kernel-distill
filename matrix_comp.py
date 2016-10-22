@@ -7,9 +7,10 @@ class MatrixCompletion(object):
         self.r = r
         self.Omega = Omega
         self.values = values
-        self.B = np.sqrt(r) * np.max(np.concatenate(values.values()))
+        arr = np.concatenate(values.values())
+        self.B = np.sqrt(np.max(arr))
         self.eta = eta
-        self.U = np.sqrt(np.ones((n, r)) * np.mean(np.concatenate(values.values())))
+        self.U = np.sqrt(np.ones((n, r)) * abs(np.mean(arr)))
 
     def completion(self, num_simu):
         for i in xrange(num_simu):
@@ -20,16 +21,16 @@ class MatrixCompletion(object):
     def update_row(self, row_ind):
         for j in xrange(len(self.Omega[row_ind])):
             col_ind = self.Omega[row_ind][j]
-            grad = np.dot(self.U[row_ind, :], self.U[col_ind, :]) - self.values[row_ind][j]
+            grad = np.dot(self.U[row_ind], self.U[col_ind]) - self.values[row_ind][j]
             if col_ind == row_ind:
-                grad = 2 * grad * self.U[col_ind, :]
+                grad = 2 * grad * self.U[col_ind]
             else:
-                grad = grad * self.U[col_ind, :]
-            self.U[row_ind, :] -= self.eta * grad
+                grad = grad * self.U[col_ind]
+            self.U[row_ind] -= self.eta * grad
 
-            norm = np.linalg.norm(self.U[row_ind, :])
+            norm = np.linalg.norm(self.U[row_ind])
             if norm > self.B:
-                self.U[row_ind, :] = self.U[row_ind, :] / norm * self.B
+                self.U[row_ind] = self.U[row_ind] / norm * self.B
 
 
 if __name__ == '__main__':

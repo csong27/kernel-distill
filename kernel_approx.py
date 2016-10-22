@@ -7,24 +7,23 @@ np.random.seed(123132)
 
 
 class KernelApproximate(object):
-    def __init__(self, kernel, x, numPoints, inducingPoints, hyp):
+    def __init__(self, kernel, x, num_samples, inducing_points, hyp):
         self.kernel = kernel
         self.x = x
-        self.numPoints = numPoints
+        self.num_samples = num_samples
         self.Omega = {}
         self.values = {}
-        self.inducingPoints = inducingPoints
+        self.inducing_points = inducing_points
         self.hyp = hyp
 
     def random_error_correction(self):
         n = self.x.shape[0]
-        index = np.random.choice(n * n, self.numPoints, replace=False)
-        xu = self.x[self.inducingPoints, :]
+        index = np.random.choice(n * n, self.num_samples, replace=False)
+        xu = self.x[self.inducing_points]
 
-        Kuu = self.kernel.evaluate(xu, xu, self.hyp) + 1e-6 * np.eye(len(self.inducingPoints))
+        Kuu = self.kernel.evaluate(xu, xu, self.hyp) + 1e-6 * np.eye(len(self.inducing_points))
         Luu = cholesky(Kuu, lower=True)
-        Kuu_inv = cho_solve((Luu, True), np.eye(len(self.inducingPoints)))
-
+        Kuu_inv = cho_solve((Luu, True), np.eye(len(self.inducing_points)))
         for num in index:
             row = num / n
             col = num % n
@@ -33,36 +32,46 @@ class KernelApproximate(object):
                 self.values[row] = []
 
             true_kernel = self.kernel.evaluate(self.x[row], self.x[col], self.hyp)
-            appro_kernel = self.kernel.evaluate(self.x[row], xu, self.hyp)
-            appro_kernel = np.dot(appro_kernel, Kuu_inv)
-            appro_kernel = np.dot(appro_kernel, self.kernel.evaluate(xu, self.x[col], self.hyp))
+            approx_kernel = self.kernel.evaluate(self.x[row], xu, self.hyp)
+            approx_kernel = np.dot(approx_kernel, Kuu_inv)
+            approx_kernel = np.dot(approx_kernel, self.kernel.evaluate(xu, self.x[col], self.hyp))
 
-            dif = true_kernel - appro_kernel
+            dif = true_kernel - approx_kernel
             self.Omega[row].append(col)
             self.values[row].append(dif[0][0])
 
 
-def test():
-    x = np.random.normal(0, 5, size=(100, 1))
-    x = np.sort(x, axis=0)
-    inducing = np.arange(100)[::10]
+def plot_k(k):
+    plt.pcolor(np.abs(k))
+    plt.colorbar()
+    plt.gca().invert_yaxis()
+    plt.clim(0, 1e-6)
+    plt.show()
 
-    hyp = [np.log(1), np.log(0.1)]
-    ka = KernelApproximate(SEiso, x, 1000, inducing, hyp)
+
+def test():
+    n = 500
+    m = 70
+    x = np.random.normal(0, 5, size=(n, 1))
+    x = np.sort(x, axis=0)
+    inducing = np.random.choice(n, m, replace=False)
+
+    hyp = [np.log(3), np.log(2)]
+    ka = KernelApproximate(SEiso, x, 5000, inducing, hyp)
     ka.random_error_correction()
     omg = ka.Omega
     val = ka.values
 
-    mc = MatrixCompletion(100, 20, omg, val, 0.0001)
-    mc.completion(1000)
+    mc = MatrixCompletion(n, 50, omg, val, 0.001)
+    mc.completion(500)
 
     xu = x[inducing]
     se = SEiso()
     true_k = se.evaluate(x, x, hyp)
 
     Kuu = se.evaluate(xu, xu, hyp)
-    Luu = cholesky(Kuu + 1e-6 * np.eye(len(inducing)), lower=True)
-    Kuu_inv = cho_solve((Luu, True), np.eye(len(inducing)))
+    Luu = cholesky(Kuu + 1e-6 * np.eye(m), lower=True)
+    Kuu_inv = cho_solve((Luu, True), np.eye(m))
     Kxu = se.evaluate(x, xu, hyp)
 
     approx_error = np.dot(mc.U, mc.U.T)
@@ -73,8 +82,12 @@ def test():
     E = true_k - approx_k
     print np.linalg.norm(E)
 
+    # plot_k(true_k)
+    # plot_k(approx_k)
     E = true_k - (approx_k + approx_error)
     print np.linalg.norm(E)
+
+    plot_k(E)
 
 
 if __name__ == '__main__':
