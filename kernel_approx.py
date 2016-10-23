@@ -1,4 +1,4 @@
-from cov.se_iso import SEiso
+from cov import SEiso, Materniso
 from matrix_comp import MatrixCompletion
 from scipy.linalg import cholesky, cho_solve
 import numpy as np
@@ -51,13 +51,15 @@ def plot_k(k):
 
 def test():
     n = 500
-    m = 70
+    m = 50
     x = np.random.normal(0, 5, size=(n, 1))
     x = np.sort(x, axis=0)
     inducing = np.random.choice(n, m, replace=False)
 
-    hyp = [np.log(3), np.log(2)]
-    ka = KernelApproximate(SEiso, x, 5000, inducing, hyp)
+    hyp = [np.log(5), np.log(5)]
+    cov = Materniso(5)
+
+    ka = KernelApproximate(cov, x, 5000, inducing, hyp)
     ka.random_error_correction()
     omg = ka.Omega
     val = ka.values
@@ -66,13 +68,12 @@ def test():
     mc.completion(500)
 
     xu = x[inducing]
-    se = SEiso()
-    true_k = se.evaluate(x, x, hyp)
+    true_k = cov.evaluate(x, x, hyp)
 
-    Kuu = se.evaluate(xu, xu, hyp)
+    Kuu = cov.evaluate(xu, xu, hyp)
     Luu = cholesky(Kuu + 1e-6 * np.eye(m), lower=True)
     Kuu_inv = cho_solve((Luu, True), np.eye(m))
-    Kxu = se.evaluate(x, xu, hyp)
+    Kxu = cov.evaluate(x, xu, hyp)
 
     approx_error = np.dot(mc.U, mc.U.T)
     print np.linalg.norm(approx_error)
@@ -81,13 +82,10 @@ def test():
     approx_k = np.dot(approx_k, Kxu.T)
     E = true_k - approx_k
     print np.linalg.norm(E)
+    plot_k(E)
 
-    # plot_k(true_k)
-    # plot_k(approx_k)
     E = true_k - (approx_k + approx_error)
     print np.linalg.norm(E)
-
-    plot_k(E)
 
 
 if __name__ == '__main__':
