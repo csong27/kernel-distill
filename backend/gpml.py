@@ -210,7 +210,8 @@ class GPML(object):
         val = self.eng.pull('val').flatten()
         dval = self.eng.pull('dval')
         N = self.eng.pull('N')
-        return row, col, val, dval, N
+        xg = np.asarray(xg[0]).flatten()
+        return xg, row, col, val, dval, N
 
     def cov_eval(self, X, cov, hyp, Q=None):
         config = {'X': 'X', 'cov': "@%s" % cov}

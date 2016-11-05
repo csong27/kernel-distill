@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sparse
 from sklearn import linear_model
 from functools import reduce
 from kernel.seiso import SEiso
@@ -28,7 +29,6 @@ class Distillation(object):
         self.dKI = kernel.gradient(U, U, hyp)
         self.K = kernel.evaluate(X, X, hyp)
         self.K_xu = kernel.evaluate(X, U, hyp)
-
         self.regress_init(width)
 
     @staticmethod
@@ -44,15 +44,16 @@ class Distillation(object):
             regr = linear_model.LinearRegression()
             regr.fit(self.KI[ind].T, self.K_xu[i])
             self.W[i, ind] = regr.coef_
-        self.banded_mask[self.W != 0] = 1
+        self.banded_mask[self.W != 0] = 1.
+        self.print_error()
 
     def grad_update_W(self, row_ind, eta):
         grad = np.zeros(self.W[row_ind, :].shape)
         for i in xrange(self.n):
             if i == row_ind:
-                grad += 4 * (reduce(np.dot, [self.W[row_ind], self.KI, self.W[i]]) - self.K[row_ind, i])
+                grad += 4 * (reduce(np.dot, [self.W[row_ind], self.KI, self.W[i]]) - self.K[row_ind, i]) * np.dot(self.KI, self.W[i])
             else:
-                grad += 2 * (reduce(np.dot, [self.W[row_ind], self.KI, self.W[i]]) - self.K[row_ind, i])
+                grad += 2 * (reduce(np.dot, [self.W[row_ind], self.KI, self.W[i]]) - self.K[row_ind, i]) * np.dot(self.KI, self.W[i])
         self.W[row_ind] -= eta * grad
 
     def grad_update_hyp(self, eta):
@@ -69,10 +70,13 @@ class Distillation(object):
                 self.grad_update_W(i, self.eta)
                 # project to the banded matrix space
                 self.W = self.W * self.banded_mask
-            self.grad_update_hyp(self.eta)
-            self.difK = reduce(np.dot, [self.W, self.KI, self.W.transpose()]) - self.K
-            self.error = np.linalg.norm(self.difK)
-            print self.error
+            # self.grad_update_hyp(self.eta)
+            self.print_error()
+
+    def print_error(self):
+        self.difK = reduce(np.dot, [self.W, self.KI, self.W.T]) - self.K
+        self.error = np.linalg.norm(self.difK)
+        print self.error, np.linalg.norm(self.K)
 
 
 def test():
@@ -84,11 +88,19 @@ def test():
     U = X[inducing]
     hyp = [np.log(2), np.log(2)]
     kernel = SEiso()
-    distill = Distillation(kernel=kernel, X=X, U=U, width=4, hyp=hyp, num_iters=100, eta=1e-7)
-    distill.grad_descent()
 
     # check kiss
-
+    gpml = GPML()
+    cov = 'covSEiso'
+    K = gpml.cov_eval(X, cov, hyp)
+    xg, row, col, val, dval, N = gpml.interpolate_grid(X, 1, float(m))
+    W = sparse.csr_matrix((val, (row, col)), shape=(n, N)).toarray()
+    Kuu = kernel.evaluate(xg, xg, hyp)
+    K_approx = reduce(np.dot, [W, Kuu, W.T])
+    print np.linalg.norm(K - K_approx)
+    # distillation
+    distill = Distillation(kernel=kernel, X=X, U=U, width=5, hyp=hyp, num_iters=1000, eta=1e-4)
+    distill.grad_descent()
 
 
 if __name__ == '__main__':
