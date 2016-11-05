@@ -27,7 +27,7 @@ class SEiso(object):
         sf2 = np.exp(2 * hyp[1])
         K = euclidean_distances(x / ell, z / ell, squared=True)  # (x-z)^T (x-z)
         grad_log_ell = sf2 * np.exp(-K / 2) * K
-        grad_log_sf = 2 * sf2 * np.exp(-K / 2) * K
+        grad_log_sf = 2 * sf2 * np.exp(-K / 2)
         shape = (K.shape[0], -1, 1)
         return np.concatenate((grad_log_ell.reshape(shape), grad_log_sf.reshape(shape)), axis=2)
 

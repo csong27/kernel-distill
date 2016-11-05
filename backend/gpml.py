@@ -36,6 +36,15 @@ _gp_cov_evaluation = """
 [K dK] = feval({cov}, hyp, {X});
 """
 
+_gp_structure_grid_K = """
+[Kg Mx] = apxGrid({cov}, {xg}, {hyp}, {X});
+"""
+
+_gp_expand_grid = """
+[xe nx Dx] = apxGrid('expand', xg);
+"""
+
+
 class GPML(object):
     """Class that implements backend functionality for Gaussian processes.
     Arguments:
@@ -189,18 +198,22 @@ class GPML(object):
         dlik_dx = self.eng.pull('dlik_dx')
         return dlik_dx
 
-    def create_grid(self, X, eq, k):
+    def create_grid(self, X, eq, k, rtn_py=False):
+        if isinstance(k, int):
+            k = float(k)
         config = {'X': 'X'}
         self.eng.push('X', X)
         self.eng.push('eq', eq)
         self.eng.push('k', k)
         self.eng.eval(_gp_create_grid.format(**config), verbose=0)
         xg = self.eng.pull('xg')
+        if rtn_py:
+            return np.asarray(xg).reshape(-1, k)
         return xg
 
-    def interpolate_grid(self, X, eq, k, deg=3.):
+    def interpolate_grid(self, X, eq, k, deg=3., expand_grid=False):
         config = {'X': 'X'}
-        xg = self.create_grid(X, eq, k)
+        xg = self.create_grid(X, eq, k, False)
         self.eng.push('X', X)
         self.eng.push('xg', xg)
         self.eng.push('deg', deg)
@@ -210,7 +223,9 @@ class GPML(object):
         val = self.eng.pull('val').flatten()
         dval = self.eng.pull('dval')
         N = self.eng.pull('N')
-        xg = np.asarray(xg[0]).flatten()
+        if expand_grid:
+            xg = self.expand_grid(xg)
+
         return xg, row, col, val, dval, N
 
     def cov_eval(self, X, cov, hyp, Q=None):
@@ -228,16 +243,39 @@ class GPML(object):
             return K, dK
         return K
 
+    def struct_K_mvm(self, xg, hyp, cov, X):
+        input_dim = X.shape[1]
+        cov = ','.join(input_dim * ['{@%s}' % cov])
+        if input_dim > 1:
+            cov = '{' + cov + '}'
+        hyp = np.tile(hyp, (1, input_dim))
+        config = {'X': 'X', 'cov': cov, 'hyp': 'hyp', 'xg': 'xg'}
+        self.eng.push('X', X)
+        self.eng.push('xg', xg)
+        self.eng.push('hyp', hyp)
+        self.eng.eval(_gp_structure_grid_K.format(**config), verbose=1)
+        # self.eng.push('y', y)
+        # config = {'y': 'y'}
+        # self.eng.eval(_gp_structure_mvm.format(**config))
+        # return self.eng.pull('y')
+
+    def struct_K_der(self, Kg, xg, Mx, a, b):
+        pass
+
+    def expand_grid(self, xg):
+        self.eng.push('xg', xg)
+        self.eng.eval(_gp_expand_grid, verbose=1)
+        xe = self.eng.pull('xe')
+        return xe
+
 
 def test():
     gpml = GPML()
-    n = 10
-    x = np.random.normal(5, size=(n, 1))
+    n = 20
+    x = np.random.normal(5, size=(n, 2))
     hyp = [np.log(2), np.log(2)]
     cov = 'covSEiso'
-    Q = np.eye(n)
-    K, dK = gpml.cov_eval(x, cov, hyp, Q)
-    print dK
+
 
 if __name__ == '__main__':
     test()
