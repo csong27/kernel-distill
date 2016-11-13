@@ -16,7 +16,7 @@ np.random.seed(13423)
 
 class Distillation(object):
     def __init__(self, kernel, X, y, U, num_iters, hyp, sigmasq, width, eta=1e-4, W=None, update_hyp=False,
-                 use_kmeans=False, optimizer='adagrad'):
+                 use_kmeans=False, optimizer='sgd'):
         self.n = X.shape[0]
         self.m = U.shape[0]
         self.X = X
@@ -119,7 +119,7 @@ class Distillation(object):
         b = self.W.dot(self.KI).T
         if use_true_K:
             A = self.K + self.sigmasq * np.eye(self.n)
-            L = sl.cholesky(A, lower=True)
+            L = sl.cholesky(A + 1e-6 * np.eye(self.n), lower=True)
             self.pre_mean = sl.cho_solve((L, True), self.y)
         else:
             self.pre_mean = self.cg_solve(self.y, n_iter=self.n)
@@ -130,8 +130,9 @@ class Distillation(object):
         b = self.W.dot(self.KI)
         A = self.K if use_true_K else self.approx_K()
         A += self.sigmasq * np.eye(self.n)
-        L = sl.cholesky(A, lower=True)
+        L = sl.cholesky(A + 1e-6 * np.eye(self.n), lower=True)
         self.pre_var = np.dot(b.T, sl.cho_solve((L, True), b))
+        self.pre_var = np.diag(self.pre_var)
 
     def kiss_operator(self, vec):
         kiss_vec = self.W.dot(self.KI.dot(self.W.T.dot(vec)))
@@ -163,7 +164,6 @@ class Distillation(object):
         W_star = self.get_W_star(x_star, ind)
         K_xstar_xstar = self.kernel.evaluate(x_star, x_star, self.hyp)[0][0]
         explained_var = W_star.dot(self.pre_var)
-        explained_var = W_star.dot(explained_var.T)
         return K_xstar_xstar - explained_var + self.sigmasq
 
     def get_W_star(self, x_star, ind, sample_size=20):
