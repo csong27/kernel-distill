@@ -10,14 +10,43 @@ class SGD(object):
 
 
 class AdaGrad(SGD):
-    def __init__(self, eta, shape, fudge_factor=1e-6):
+    def __init__(self, eta, shape, epsilon=1e-6):
         SGD.__init__(self, eta)
         self.gti = np.zeros(shape)
-        self.fudge_factor = fudge_factor
+        self.epsilon = epsilon
 
     def adjust_grad(self, grad):
         self.gti += grad ** 2
-        adjusted_grad = grad / (self.fudge_factor + np.sqrt(self.gti))
+        adjusted_grad = grad / np.sqrt(self.gti + self.epsilon)
+        return self.eta * adjusted_grad
+
+
+class AdaDelta(SGD):
+    def __init__(self, eta, shape, rho=0.9, epsilon=1e-06):
+        SGD.__init__(self, eta)
+        self.r = np.zeros(shape)
+        self.s = np.zeros(shape)
+        self.rho = rho
+        self.epsilon = epsilon
+
+    def adjust_grad(self, grad):
+        self.r = self.rho * self.r + (1 - self.rho) * grad ** 2
+        eta = self.eta * np.sqrt(self.s + self.epsilon) / np.sqrt(self.r + self.epsilon)
+        adjusted_grad = eta * grad
+        self.s = self.rho * self.s + (1 - self.rho) * adjusted_grad ** 2
+        return adjusted_grad
+
+
+class RmsProp(SGD):
+    def __init__(self, eta, shape, rho=0.9, epsilon=1e-06):
+        SGD.__init__(self, eta)
+        self.r = np.zeros(shape)
+        self.rho = rho
+        self.epsilon = epsilon
+
+    def adjust_grad(self, grad):
+        self.r = self.rho * self.r + (1 - self.rho) * grad ** 2
+        adjusted_grad = grad / np.sqrt(self.r + self.epsilon)
         return self.eta * adjusted_grad
 
 

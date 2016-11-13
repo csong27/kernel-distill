@@ -81,8 +81,7 @@ class GPML(object):
         utils_path = os.path.join(os.path.dirname(__file__), 'gpml_utils')
         self.eng.addpath(utils_path)
 
-    def configure(self, input_dim, hyp, opt, inf, mean, cov, lik, dlik,
-                  grid_kwargs=None, verbose=1):
+    def configure(self, input_dim, hyp, opt, inf, mean, cov, lik='likGauss', grid_kwargs=None, verbose=1):
         """Configure GPML-based Guassian process.
         Arguments:
         ----------
@@ -112,7 +111,6 @@ class GPML(object):
         self.config['lik'] = "{@%s}" % lik
         self.config['mean'] = "{@%s}" % mean
         self.config['inf'] = "{@(varargin) %s(varargin{:}, opt)}" % inf
-        self.config['dlik'] = "@(varargin) %s(varargin{:}, opt)" % dlik
 
         if inf == 'infGrid':
             assert grid_kwargs is not None, \
@@ -132,7 +130,6 @@ class GPML(object):
 
         self.eng.push('hyp', hyp)
         self.eng.push('opt', opt)
-        self.eng.eval("dlik = %s;" % self.config['dlik'], verbose=0)
 
         if verbose:
             print("GP configuration:")
