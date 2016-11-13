@@ -48,8 +48,8 @@ def experiment1():
     # xx = X.flatten()
     for xstar in xx:
         xstar = np.asarray([xstar])
-        vv.append(distill.predict_variance(xstar, width=10, use_exact=False))
-        mm.append(distill.predict_mean(xstar, width=10, use_exact=False))
+        vv.append(distill.predict_variance(xstar, width=10))
+        mm.append(distill.predict_mean(xstar, width=10))
 
     mm = np.asarray(mm).flatten()
     vv = np.asarray(vv).flatten()
@@ -87,6 +87,7 @@ def experiment2():
 
     x_min, x_max = np.min(X), np.max(X)
     U = np.linspace(x_min, x_max, m).reshape(-1, 1)
+
     X = X.reshape(-1, 1)
     hyp_cov = np.asarray([np.log(1), np.log(2)])
     hyp_lik = float(np.log(1))
@@ -95,9 +96,10 @@ def experiment2():
     hyp_cov = hyp['cov'][0]
     sigmasq = np.exp(2 * hyp['lik'])
     kernel = SEiso()
-    distill = Distillation(X=X, y=y, U=U, kernel=kernel, hyp=hyp_cov, num_iters=0, eta=1e-3,
-                           sigmasq=sigmasq, width=10)
+    distill = Distillation(X=X, y=y, U=U, kernel=kernel, hyp=hyp_cov, num_iters=100, eta=1e-4,
+                           sigmasq=sigmasq, width=10, use_kmeans=True)
     distill.grad_descent()
+    distill.precompute(False)
 
     mm = []
     vv = []
@@ -111,11 +113,11 @@ def experiment2():
     # xx = X.flatten()
     for xstar in xx:
         xstar = np.asarray([xstar])
-        vv.append(distill.predict_variance(xstar, width=10, use_exact=False))
-        mm.append(distill.predict_mean(xstar, width=10, use_exact=False))
+        vv.append(distill.predict_variance(xstar, width=10))
+        mm.append(distill.predict_mean(xstar, width=10))
 
     mm = np.asarray(mm).flatten()
-    vv = np.asarray(vv).flatten() + sigmasq
+    vv = np.asarray(vv).flatten()
     mm_true = np.asarray(mm_true).flatten()
     vv_true = np.asarray(vv_true).flatten()
 
