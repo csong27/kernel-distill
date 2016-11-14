@@ -20,8 +20,8 @@ class Distillation(object):
         self.n = X.shape[0]
         self.m = U.shape[0]
         self.X = X
-        U = self.inducing_kmeans() if use_kmeans else U
-        self.U = U
+        self.y = y
+        self.U = self.inducing_kmeans() if use_kmeans else U
         self.num_iters = num_iters
         self.hyp = hyp
         self.error = None
@@ -32,13 +32,13 @@ class Distillation(object):
         self.sigmasq = sigmasq
         self.pre_mean = None
         self.pre_var = None
-        self.y = y
+
         # evaluate kernel
-        self.KI = kernel.evaluate(U, U, hyp)
-        self.dKI = kernel.gradient(U, U, hyp)
-        self.K = kernel.evaluate(X, X, hyp)
-        self.L = None
-        self.K_xu = kernel.evaluate(X, U, hyp)
+        self.KI = kernel.evaluate(self.U, self.U, self.hyp)
+        self.dKI = kernel.gradient(self.U, self.U, self.hyp) if self.update_hyp else None
+        self.K = kernel.evaluate(self.X, self.X, self.hyp)
+        self.K_xu = kernel.evaluate(self.X, self.U, self.hyp)
+
         # setup optimizer
         if optimizer == 'adagrad':
             self.opt = AdaGrad(eta, (self.n, self.m))
@@ -47,15 +47,25 @@ class Distillation(object):
         else:
             raise ValueError(optimizer)
 
+        # store inducing points
         self.kd_tree = spatial.cKDTree(self.U)
+
+        # initialize W
         if W is None:
             self.W = np.zeros((self.n, self.m))
             self.regression_fit()
         else:
             self.W = W
+
         # set up the mask
+        self.mask = np.zeros((self.n, self.m))
+        self.mask[self.W != 0] = 1.
+
+        # use sparse representation
         self.W = sparse.csr_matrix(self.W)
         self.mask = sparse.csr_matrix(self.mask)
+
+        # initial error
         self.print_error()
 
     def inducing_kmeans(self):
@@ -64,21 +74,12 @@ class Distillation(object):
         kmeans.fit(self.X)
         return kmeans.cluster_centers_
 
-    @staticmethod
-    def find_neighbors(x, U, width):
-        dif = x - U
-        norms = np.apply_along_axis(np.linalg.norm, 1, dif)
-        ind = np.argsort(norms)[: width]
-        return ind
-
     def regression_fit(self):
         for i in xrange(self.n):
-            ind = self.find_neighbors(self.X[i], self.U, self.width)
+            _, ind = self.kd_tree.query(self.X[i], self.width)
             regr = linear_model.LinearRegression()
             regr.fit(self.KI[ind].T, self.K_xu[i])
             self.W[i, ind] = regr.coef_
-        self.mask = np.zeros((self.n, self.m))
-        self.mask[self.W != 0] = 1.
 
     def grad_update_W(self, row_ind):
         A = self.W[row_ind].dot(self.KI)

@@ -33,7 +33,7 @@ def experiment1D():
     distill = Distillation(X=X, y=y, U=U, kernel=kernel, hyp=hyp_cov, num_iters=10, eta=5e-4,
                            sigmasq=sigmasq, width=10, use_kmeans=True, optimizer='sgd')
     distill.grad_descent()
-    distill.precompute(use_true_K=True)
+    distill.precompute(use_true_K=False)
 
     mm = []
     vv = []
