@@ -22,7 +22,7 @@ class Distillation(object):
         self.X = X
         self.y = y
         self.U = self.inducing_kmeans() if use_kmeans else U
-        self.num_iters = num_iters
+        self.num_iters = int(num_iters)
         self.hyp = hyp
         self.error = None
         self.eta = eta
@@ -153,6 +153,7 @@ class Distillation(object):
         if width is None:
             width = self.width
         _, ind = self.kd_tree.query(x_star, width, 0.)
+        ind = ind.flatten()
         W_star = self.get_W_star(x_star, ind)
         return W_star.dot(self.pre_mean)
 
@@ -162,6 +163,7 @@ class Distillation(object):
         if width is None:
             width = self.width
         _, ind = self.kd_tree.query(x_star, width, 0.)
+        ind = ind.flatten()
         W_star = self.get_W_star(x_star, ind)
         K_xstar_xstar = self.kernel.evaluate(x_star, x_star, self.hyp)[0][0]
         explained_var = W_star.dot(self.pre_var)
@@ -213,21 +215,11 @@ def test():
     W = sparse.csr_matrix((val, (row, col)), shape=(n, N)).toarray()
     Kuu = kernel.evaluate(xg, xg, hyp)
     K_approx = reduce(np.dot, [W, Kuu, W.T])
+
     print np.linalg.norm(K - K_approx)
     plt.imshow(np.abs(K - K_approx))
     plt.colorbar()
     plt.show()
-
-    # distillation
-    # distill = Distillation(kernel=kernel, X=X, U=U, width=16, hyp=hyp, num_iters=0, eta=1e-5, sparse_W=True,
-    #                        update_hyp=False, W=None)
-    # distill.grad_descent()
-    # W1 = distill.W.toarray()
-    # K_approx1 = reduce(np.dot, [W1, distill.Kuu, W1.T])
-    #
-    # plt.imshow(np.abs(K - K_approx1))
-    # plt.colorbar()
-    # plt.show()
 
     K_uu = kernel.evaluate(xg, xg, hyp)
     K_xu = kernel.evaluate(X, xg, hyp)

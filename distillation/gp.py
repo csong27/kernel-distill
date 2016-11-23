@@ -56,14 +56,20 @@ class GaussianProcess(object):
         hyp = self.gpml.eng.pull('hyp')
         return hyp
 
-    def predict_kiss(self, x, y, xstar, k, hyp, opt, mean='meanZero', cov='covSEiso'):
+    def predict_kiss(self, x, y, xstar, k, hyp, opt, mean='meanZero', cov='covSEiso', fast=True):
         inf = 'infGrid'
         input_dim = x.shape[1]
         grid_kwargs = {'eq': 1, 'k': float(k)}
-        self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, grid_kwargs=grid_kwargs)
+        if fast:
+            opt['pred_var'] = 20.0
+        self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, tile_hyp_cov=False,
+                            grid_kwargs=grid_kwargs)
         self.gpml.update_data('tr', x, y)
         self.gpml.update_grid('tr')
-        return self.gpml.predict(xstar, return_var=True, verbose=1)
+        if fast:
+            return self.gpml.fast_predict(xstar, return_var=True, verbose=1)
+        else:
+            return self.gpml.predict(xstar, return_var=True, verbose=1)
 
 if __name__ == '__main__':
     pass

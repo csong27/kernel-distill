@@ -12,18 +12,28 @@ GPML_PATH = 'D:\Course\Cornell\orie6741\gpml-matlab-v4.0-2016-10-19/'
 _gp_train_epoch = """
 hyp = minimize(hyp, @gp, -{n_iter:d}, {inf}, {mean}, {cov}, {lik}, X_tr, y_tr);
 """
+
 _gp_predict = """
 [ymu ys2 fmu fs2   ] = gp(hyp, {inf}, {mean}, {cov}, {lik}, X_tr, y_tr, X_tst);
 """
+
+_gp_fast_predict = """
+[post,nlZ,dnlZ] = infGrid(hyp, {mean}, {cov}, {lik}, X_tr, y_tr, opt);
+[fmu,fs2,ymu,ys2] = post.predict(X_tst);
+"""
+
 _gp_evaluate = """
 [nlZ dnlZ          ] = gp(hyp, {inf}, {mean}, {cov}, {lik}, {X}, {y});
 """
+
 _gp_dlik = """
 [dlik_dx           ] = dlik(hyp, {mean}, {cov}, {lik}, {dcov}, {X}, {y});
 """
+
 _gp_create_grid = """
 xg = apxGrid('create', {X}, eq, k);
 """
+
 _gp_grid_interpolate = """
 [row col val dval N] = apxGridUtils('interp', xg, {X}, deg);
 """
@@ -81,7 +91,8 @@ class GPML(object):
         utils_path = os.path.join(os.path.dirname(__file__), 'gpml_utils')
         self.eng.addpath(utils_path)
 
-    def configure(self, input_dim, hyp, opt, inf, mean, cov, lik='likGauss', grid_kwargs=None, verbose=1):
+    def configure(self, input_dim, hyp, opt, inf, mean, cov, lik='likGauss', grid_kwargs=None, verbose=1,
+                  tile_hyp_cov=True):
         """Configure GPML-based Guassian process.
         Arguments:
         ----------
@@ -120,7 +131,8 @@ class GPML(object):
             cov = ','.join(input_dim * ['{@%s}' % cov])
             if input_dim > 1:
                 cov = '{' + cov + '}'
-            hyp['cov'] = np.tile(hyp['cov'], (1, input_dim))
+            if tile_hyp_cov:
+                hyp['cov'] = np.tile(hyp['cov'], (1, input_dim))
             self.config['cov'] = "{@covGrid, %s, xg}" % cov
             self.config['dcov'] = "[]"
         else:
@@ -134,6 +146,7 @@ class GPML(object):
         if verbose:
             print("GP configuration:")
             pprint(self.config)
+            pprint(hyp)
 
     def update_data(self, which_set, X, y=None):
         """Update data in GP backend.
@@ -170,6 +183,18 @@ class GPML(object):
         if X_tr is not None and y_tr is not None:
             self.update_data('tr', X_tr, y_tr)
         self.eng.eval(_gp_predict.format(**self.config), verbose=verbose)
+        preds = self.eng.pull('ymu')
+        if return_var:
+            preds = (preds, self.eng.pull('ys2'))
+        return preds
+
+    def fast_predict(self, X, X_tr=None, y_tr=None, return_var=False, verbose=0):
+        """Predict ymu and ys2 for a given X. Return ymu and ys2.
+        """
+        self.update_data('tst', X)
+        if X_tr is not None and y_tr is not None:
+            self.update_data('tr', X_tr, y_tr)
+        self.eng.eval(_gp_fast_predict.format(**self.config), verbose=verbose)
         preds = self.eng.pull('ymu')
         if return_var:
             preds = (preds, self.eng.pull('ys2'))
@@ -240,7 +265,7 @@ class GPML(object):
             return K, dK
         return K
 
-    def struct_K_mvm(self, xg, hyp, cov, X):
+    def get_kiss_K(self, xg, hyp, cov, X):
         input_dim = X.shape[1]
         cov = ','.join(input_dim * ['{@%s}' % cov])
         if input_dim > 1:
@@ -251,13 +276,11 @@ class GPML(object):
         self.eng.push('xg', xg)
         self.eng.push('hyp', hyp)
         self.eng.eval(_gp_structure_grid_K.format(**config), verbose=1)
-        # self.eng.push('y', y)
-        # config = {'y': 'y'}
-        # self.eng.eval(_gp_structure_mvm.format(**config))
-        # return self.eng.pull('y')
-
-    def struct_K_der(self, Kg, xg, Mx, a, b):
-        pass
+        get_K = """
+        K = Mx*Kg.mvm(Mx');
+        """
+        self.eng.eval(get_K)
+        return self.eng.pull('K')
 
     def expand_grid(self, xg):
         self.eng.push('xg', xg)
@@ -272,6 +295,8 @@ def test():
     x = np.random.normal(5, size=(n, 2))
     hyp = [np.log(2), np.log(2)]
     cov = 'covSEiso'
+    xg = gpml.create_grid(x, eq=1, k=5.)
+    gpml.get_kiss_K(xg, hyp, cov, x)
 
 
 if __name__ == '__main__':

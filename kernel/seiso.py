@@ -12,9 +12,9 @@ class SEiso(object):
     @staticmethod
     def evaluate(x, z, hyp):
         if len(x.shape) == 1:
-            x = x.reshape(-1, 1)
+            x = x.reshape(1, -1)
         if len(z.shape) == 1:
-            z = z.reshape(-1, 1)
+            z = z.reshape(1, -1)
 
         ell = np.exp(hyp[0])
         sf2 = np.exp(2 * hyp[1])
