@@ -15,7 +15,7 @@ class GaussianProcess(object):
         hyp = self.gpml.eng.pull('hyp')
         return hyp
 
-    def predict_exact(self,x, y, xstar, hyp, mean='meanZero', cov='covSEiso'):
+    def predict_exact(self, x, y, xstar, hyp, mean='meanZero', cov='covSEiso'):
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
@@ -26,7 +26,7 @@ class GaussianProcess(object):
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
-        cov = '{@apxSparse,@{%s},xu}' % cov
+        cov = 'apxSparse,{@%s},xu' % cov
         self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf)
         self.gpml.eng.push('xu', xu)
         self.gpml.update_data('tr', x, y)
@@ -38,7 +38,7 @@ class GaussianProcess(object):
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
-        cov = '{@apxSparse,@{%s},xu}' % cov
+        cov = 'apxSparse,{@%s},xu' % cov
         self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf)
         self.gpml.eng.push('xu', xu)
         self.gpml.update_data('tr', x, y)

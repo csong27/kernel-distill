@@ -91,14 +91,14 @@ def experiment2D():
     yy = f(xx)
     yy -= mean_y
 
-    hyp_cov = np.asarray([np.log(1), np.log(2)])
-    hyp_lik = float(np.log(1))
+    hyp_cov = np.asarray([np.log(2), np.log(2)])
+    hyp_lik = float(np.log(2))
     hyp_old = {'mean': [], 'lik': hyp_lik, 'cov': hyp_cov}
     print 'Training exact'
-    hyp = gp.train_exact(X, y.reshape(-1, 1), hyp_old)
-
+    hyp = gp.train_exact(X, y.reshape(-1, 1), hyp_old, n_iter=100)
     mm_true, vv_true = gp.predict_exact(X, y.reshape(-1, 1), xx, hyp=hyp)
-
+    print '--------------------'
+    print hyp
     hyp_cov = hyp['cov'][0]
     sigmasq = np.exp(2 * hyp['lik'])
     kernel = SEiso()
@@ -111,8 +111,7 @@ def experiment2D():
     vv = []
     opt = {'cg_maxit': 500, 'cg_tol': 1e-5}
     k = m * 2
-    hyp = gp.train_kiss(X, y.reshape(-1, 1), k, hyp=hyp_old, opt=opt)
-
+    hyp = gp.train_kiss(X, y.reshape(-1, 1), k, hyp=hyp_old, opt=opt, n_iter=1)
     mm_kiss, vv_kiss = gp.predict_kiss(X, y.reshape(-1, 1), xx, k, hyp=hyp, opt=opt)
 
     for xstar in xx:
@@ -131,23 +130,23 @@ def experiment2D():
     # plt.imshow(mm_kiss.reshape(100, 100))
     # plt.show()
 
-    f_mae_distill = np.abs(mm - yy) / np.abs(yy - np.mean(yy))
+    f_mae_distill = np.abs(mm - yy)     # / np.abs(yy - np.mean(yy))
     print np.mean(f_mae_distill)
 
-    f_mae_kiss = np.abs(mm_kiss - yy) / np.abs(yy - np.mean(yy))
+    f_mae_kiss = np.abs(mm_kiss - yy) # / np.abs(yy - np.mean(yy))
     print np.mean(f_mae_kiss)
 
-    mean_mae_distill = np.abs(mm - mm_true) / np.abs(mm_true - np.mean(mm_true))
+    mean_mae_distill = np.abs(mm - mm_true) # / np.abs(mm_true - np.mean(mm_true))
     print np.mean(mean_mae_distill)
 
-    var_mae_distill = np.abs(vv - vv_true) / np.abs(vv_true - np.mean(vv_true))
+    var_mae_distill = np.abs(vv - vv_true) # / np.abs(vv_true - np.mean(vv_true))
     print np.mean(var_mae_distill)
 
-    mean_mae_kiss = np.abs(mm_kiss - mm_true) / np.abs(mm_true - np.mean(mm_true))
+    mean_mae_kiss = np.abs(mm_kiss - mm_true) # / np.abs(mm_true - np.mean(mm_true))
     print np.mean(mean_mae_kiss)
 
-    var_mae_kiss = np.abs(vv_kiss - vv_true) / np.abs(vv_true - np.mean(vv_true))
+    var_mae_kiss = np.abs(vv_kiss - vv_true) # / np.abs(vv_true - np.mean(vv_true))
     print np.mean(var_mae_kiss)
 
 if __name__ == '__main__':
-    experiment1D()
+    experiment2D()

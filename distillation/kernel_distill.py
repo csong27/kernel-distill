@@ -69,8 +69,8 @@ class Distillation(object):
         self.print_error()
 
     def inducing_kmeans(self):
-        print 'Using K-means to choose inducing points'
-        kmeans = KMeans(n_clusters=self.m, verbose=1)
+        print 'Using K-means to choose {} inducing points'.format(self.m)
+        kmeans = KMeans(n_clusters=self.m, verbose=0)
         kmeans.fit(self.X)
         return kmeans.cluster_centers_
 
@@ -81,7 +81,7 @@ class Distillation(object):
             regr.fit(self.KI[ind].T, self.K_xu[i])
             self.W[i, ind] = regr.coef_
 
-    def grad_update_W(self, row_ind):
+    def grad_update_W2(self, row_ind):
         A = self.W[row_ind].dot(self.KI)
         A = self.W.dot(A.T).flatten() - self.K[row_ind]
         A *= 2
@@ -89,6 +89,14 @@ class Distillation(object):
         B = self.W.dot(self.KI).T
         grad = B.dot(A)
         return grad
+
+    def grad_update_W(self):
+        B = self.W.dot(self.KI).T
+        A = self.diff_to_K()
+        di = np.diag_indices(self.n)
+        A[di] *= 2
+        grad = B.dot(A)
+        return grad.T
 
     def grad_update_hyp(self, eta):
         diff_K = self.diff_to_K()
@@ -101,13 +109,11 @@ class Distillation(object):
         self.KI = self.kernel.evaluate(self.U, self.U, self.hyp)
 
     def grad_descent(self):
-        for _ in xrange(self.num_iters):
-            grad = np.zeros(self.W.shape)
-            for i in xrange(self.n):
-                grad_i = self.grad_update_W(i)
-                grad[i] = grad_i.flatten()
+        for it in xrange(self.num_iters):
+            # grad = np.zeros(self.W.shape)
+            print 'At iteration {}'.format(it)
             # adjust gradient by optimizer
-            grad = self.opt.adjust_grad(grad)
+            grad = self.opt.adjust_grad(self.grad_update_W())
             # project to the banded matrix space
             grad = self.mask.multiply(grad)
             self.W -= grad

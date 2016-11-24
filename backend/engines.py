@@ -1,7 +1,7 @@
-"""
-Computational engines used by GP backends.
-"""
 import numpy as np
+import matlab.engine
+from matlab import double as matdouble
+from StringIO import StringIO
 
 
 class Engine(object):
@@ -28,11 +28,6 @@ class Engine(object):
 
 class MATLABEngine(Engine):
     def __init__(self):
-        import matlab.engine
-        from matlab import double as matdouble
-
-        from StringIO import StringIO
-
         self._matarray = matdouble
         self._eng = matlab.engine.start_matlab()
         self._devnull = StringIO()

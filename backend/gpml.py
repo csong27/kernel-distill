@@ -183,9 +183,9 @@ class GPML(object):
         if X_tr is not None and y_tr is not None:
             self.update_data('tr', X_tr, y_tr)
         self.eng.eval(_gp_predict.format(**self.config), verbose=verbose)
-        preds = self.eng.pull('ymu')
+        preds = self.eng.pull('ymu').flatten()
         if return_var:
-            preds = (preds, self.eng.pull('ys2'))
+            preds = (preds, self.eng.pull('ys2').flatten())
         return preds
 
     def fast_predict(self, X, X_tr=None, y_tr=None, return_var=False, verbose=0):
@@ -197,7 +197,7 @@ class GPML(object):
         self.eng.eval(_gp_fast_predict.format(**self.config), verbose=verbose)
         preds = self.eng.pull('ymu')
         if return_var:
-            preds = (preds, self.eng.pull('ys2'))
+            preds = (preds.flatten(), self.eng.pull('ys2').flatten())
         return preds
 
     def train(self, n_iter, X_tr=None, y_tr=None, verbose=0):
@@ -207,8 +207,7 @@ class GPML(object):
             self.update_data('tr', X_tr, y_tr)
         self.config.update({'n_iter': n_iter})
         self.eng.eval(_gp_train_epoch.format(**self.config), verbose=verbose)
-        hyp = self.eng.pull('hyp')
-        return hyp
+        print 'Final negative log likelihood is ', self.evaluate('tr')
 
     def get_dlik_dx(self, which_set, verbose=0):
         """Get derivative of the log marginal likelihood w.r.t. the kernel.
@@ -296,7 +295,7 @@ def test():
     hyp = [np.log(2), np.log(2)]
     cov = 'covSEiso'
     xg = gpml.create_grid(x, eq=1, k=5.)
-    gpml.get_kiss_K(xg, hyp, cov, x)
+    K = gpml.get_kiss_K(xg, hyp, cov, x)
 
 
 if __name__ == '__main__':
