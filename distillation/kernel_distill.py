@@ -16,7 +16,7 @@ np.random.seed(13423)
 
 class Distillation(object):
     def __init__(self, kernel, X, y, U, num_iters, hyp, sigmasq, width, eta=1e-4, W=None, update_hyp=False,
-                 use_kmeans=False, optimizer='sgd'):
+                 use_kmeans=False, optimizer='sgd', K=None):
         self.n = X.shape[0]
         self.m = U.shape[0]
         self.X = X
@@ -32,11 +32,13 @@ class Distillation(object):
         self.sigmasq = sigmasq
         self.pre_mean = None
         self.pre_var = None
+        self.pre_alpha = None
 
         # evaluate kernel
+        print 'Evaluating kernel matrix...'
         self.KI = kernel.evaluate(self.U, self.U, self.hyp)
         self.dKI = kernel.gradient(self.U, self.U, self.hyp) if self.update_hyp else None
-        self.K = kernel.evaluate(self.X, self.X, self.hyp)
+        self.K = kernel.evaluate(self.X, self.X, self.hyp) if K is None else K
         self.K_xu = kernel.evaluate(self.X, self.U, self.hyp)
 
         # setup optimizer
@@ -69,26 +71,41 @@ class Distillation(object):
         self.print_error()
 
     def inducing_kmeans(self):
-        print 'Using K-means to choose {} inducing points'.format(self.m)
+        print 'Using K-means to choose {} inducing points...'.format(self.m)
         kmeans = KMeans(n_clusters=self.m, verbose=0)
         kmeans.fit(self.X)
         return kmeans.cluster_centers_
 
+    def nearest_neighbor1(self, x, width=None):
+        if width is None:
+            width = self.width
+
+        if len(x.shape) == 2:
+            x = x.flatten()
+
+        d = x.shape[0]
+        ind = []
+        for dim in xrange(d):
+            d_val = x[dim]
+            u_vals = self.U[:, dim]
+            distance = np.square(u_vals - d_val)
+            ind.append(np.argsort(distance)[:width])
+        ind = np.concatenate(ind)
+        return np.unique(ind)
+
+    def nearest_neighbor(self, x, width=None):
+        if width is None:
+            width = self.width
+        _, ind = self.kd_tree.query(x, width)
+        return ind.flatten()
+
     def regression_fit(self):
+        print 'Using linear regression as initialization...'
         for i in xrange(self.n):
-            _, ind = self.kd_tree.query(self.X[i], self.width)
+            ind = self.nearest_neighbor(self.X[i])
             regr = linear_model.LinearRegression()
             regr.fit(self.KI[ind].T, self.K_xu[i])
             self.W[i, ind] = regr.coef_
-
-    def grad_update_W2(self, row_ind):
-        A = self.W[row_ind].dot(self.KI)
-        A = self.W.dot(A.T).flatten() - self.K[row_ind]
-        A *= 2
-        A[row_ind] *= 2
-        B = self.W.dot(self.KI).T
-        grad = B.dot(A)
-        return grad
 
     def grad_update_W(self):
         B = self.W.dot(self.KI).T
@@ -109,6 +126,7 @@ class Distillation(object):
         self.KI = self.kernel.evaluate(self.U, self.U, self.hyp)
 
     def grad_descent(self):
+        print 'Starting distillation...'
         for it in xrange(self.num_iters):
             # grad = np.zeros(self.W.shape)
             print 'At iteration {}'.format(it)
@@ -121,65 +139,50 @@ class Distillation(object):
                 self.grad_update_hyp(self.eta)
             self.print_error()
 
-    def precompute_mean(self, use_true_K=False):
+    def precompute_alpha(self, L):
+        self.pre_alpha = sl.cho_solve((L, True), self.y)
+
+    def precompute_mean(self, L):
         print 'Precompute for mean...'
         b = self.W.dot(self.KI).T
-        if use_true_K:
-            A = self.K + self.sigmasq * np.eye(self.n)
-            L = sl.cholesky(A + 1e-6 * np.eye(self.n), lower=True)
-            self.pre_mean = sl.cho_solve((L, True), self.y)
-        else:
-            self.pre_mean = self.cg_solve(self.y, n_iter=self.n)
-        self.pre_mean = np.dot(b, self.pre_mean)
+        if self.pre_alpha is None:
+            self.precompute_alpha(L)
+        self.pre_mean = np.dot(b, self.pre_alpha)
 
-    def precompute_var(self, use_true_K=False):
+    def precompute_var(self, L):
         print 'Precompute for variance...'
         b = self.W.dot(self.KI)
-        A = self.K if use_true_K else self.approx_K()
-        A += self.sigmasq * np.eye(self.n)
-        L = sl.cholesky(A + 1e-6 * np.eye(self.n), lower=True)
         self.pre_var = np.dot(b.T, sl.cho_solve((L, True), b))
         self.pre_var = np.diag(self.pre_var)
 
-    def kiss_operator(self, vec):
-        kiss_vec = self.W.dot(self.KI.dot(self.W.T.dot(vec)))
-        kiss_vec += self.sigmasq * vec
-        return kiss_vec
+    # def kiss_operator(self, vec):
+    #     kiss_vec = self.W.dot(self.KI.dot(self.W.T.dot(vec)))
+    #     kiss_vec += self.sigmasq * vec
+    #     return kiss_vec
+    #
+    # def cg_solve(self, b, n_iter):
+    #     A = sparse.linalg.LinearOperator((self.n, self.n), matvec=self.kiss_operator)
+    #     val, err = sparse.linalg.cg(A, b, maxiter=n_iter)
+    #     if err < 0:
+    #         raise ValueError('CG failed.')
+    #     return val
 
-    def cg_solve(self, b, n_iter):
-        A = sparse.linalg.LinearOperator((self.n, self.n), matvec=self.kiss_operator)
-        val, err = sparse.linalg.cg(A, b, maxiter=n_iter)
-        if err < 0:
-            raise ValueError('CG failed.')
-        return val
-
-    def predict_mean(self, x_star, width=None):
-        if self.pre_mean is None:
-            self.precompute_mean()
-        if width is None:
-            width = self.width
-        _, ind = self.kd_tree.query(x_star, width, 0.)
-        ind = ind.flatten()
-        W_star = self.get_W_star(x_star, ind)
-        return W_star.dot(self.pre_mean)
-
-    def predict_variance(self, x_star, width=None):
-        if self.pre_var is None:
-            self.precompute_var()
-        if width is None:
-            width = self.width
-        _, ind = self.kd_tree.query(x_star, width, 0.)
-        ind = ind.flatten()
-        W_star = self.get_W_star(x_star, ind)
+    def predict(self, x_star, width=None, sample_ratio=2):
+        ind = self.nearest_neighbor(x_star, width)
+        W_star = self.get_W_star(x_star, ind, sample_ratio)
+        # predicted mean
+        pred_mean = W_star.dot(self.pre_mean)
+        # predicted variance
         K_xstar_xstar = self.kernel.evaluate(x_star, x_star, self.hyp)[0][0]
         explained_var = W_star.dot(self.pre_var)
-        return K_xstar_xstar - explained_var + self.sigmasq
+        pred_var = K_xstar_xstar - explained_var + self.sigmasq
+        return pred_mean, pred_var
 
-    def get_W_star(self, x_star, ind, sample_size=20):
-        sample_ind = np.random.choice(self.m, sample_size, replace=False)
-        K_xstar_u = self.kernel.evaluate(x_star, self.U[sample_ind], hyp=self.hyp)
+    def get_W_star(self, x_star, ind, sample_ratio=2):
+        sampled_ind = self.nearest_neighbor(x_star, self.width * sample_ratio)
+        K_xstar_u = self.kernel.evaluate(x_star, self.U[sampled_ind], hyp=self.hyp)
         reg = linear_model.LinearRegression()
-        reg.fit(self.KI[ind].T[sample_ind], K_xstar_u.flatten())
+        reg.fit(self.KI[ind].T[sampled_ind], K_xstar_u.flatten())
         W_star = sparse.csr_matrix((reg.coef_, (np.zeros_like(ind), ind)), shape=(1, self.m))
         return W_star
 
@@ -188,15 +191,19 @@ class Distillation(object):
 
     def approx_K(self):
         W_KI = self.W.dot(self.KI).T
-        return self.W.dot(W_KI)
+        app_K = self.W.dot(W_KI)
+        return app_K
 
     def print_error(self):
         self.error = np.linalg.norm(self.diff_to_K())
-        print self.error, np.linalg.norm(self.K)
+        print 'Error norm {}, True K norm {}'.format(self.error, np.linalg.norm(self.K))
 
-    def precompute(self, use_true_K):
-        self.precompute_mean(use_true_K)
-        self.precompute_var(use_true_K)
+    def precompute(self, use_true_K=False):
+        K = self.K if use_true_K else self.approx_K()
+        K += self.sigmasq * np.eye(self.n)
+        L = sl.cholesky(K, lower=True)
+        self.precompute_mean(L)
+        self.precompute_var(L)
 
 
 def test():

@@ -34,6 +34,10 @@ _gp_create_grid = """
 xg = apxGrid('create', {X}, eq, k);
 """
 
+_gp_create_grid_proj = """
+xg = apxGrid('create', {X} * hyp.proj', eq, k);
+"""
+
 _gp_grid_interpolate = """
 [row col val dval N] = apxGridUtils('interp', xg, {X}, deg);
 """
@@ -128,6 +132,8 @@ class GPML(object):
                 "GPML: No arguments provided for grid generation for infGrid."
             self.eng.push('k', grid_kwargs['k'])
             self.eng.push('eq', grid_kwargs['eq'])
+            if 'proj' in hyp:
+                input_dim = hyp['proj'].shape[0]
             cov = ','.join(input_dim * ['{@%s}' % cov])
             if input_dim > 1:
                 cov = '{' + cov + '}'
@@ -144,9 +150,10 @@ class GPML(object):
         self.eng.push('opt', opt)
 
         if verbose:
-            print("GP configuration:")
+            print("\nGP configuration:")
             pprint(self.config)
             pprint(hyp)
+            pprint(opt)
 
     def update_data(self, which_set, X, y=None):
         """Update data in GP backend.
@@ -156,12 +163,15 @@ class GPML(object):
         if y is not None:
             self.eng.push('y_' + which_set, y)
 
-    def update_grid(self, which_set):
+    def update_grid(self, which_set, with_proj=False):
         """Update grid for grid-based GP inference.
         """
         assert which_set in {'tr', 'tst', 'val', 'tmp'}
         self.config.update({'X': 'X_' + which_set, 'y': None})
-        self.eng.eval(_gp_create_grid.format(**self.config), verbose=0)
+        if with_proj:
+            self.eng.eval(_gp_create_grid_proj.format(**self.config), verbose=0)
+        else:
+            self.eng.eval(_gp_create_grid.format(**self.config), verbose=0)
 
     def evaluate(self, which_set, X=None, y=None, verbose=0):
         """Evaluate GP for given X and y.

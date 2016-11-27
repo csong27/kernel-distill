@@ -1,9 +1,12 @@
+import scipy.io as sio
 import numpy as np
 
 
 DATA_PATH = '../data/'
 KIN40K = 'kin40k'
 PUMADYN32NM = 'pumadyn32nm'
+ABALONE = 'abalone'
+BOSTON = 'boston'
 
 
 def load_kin40k():
@@ -24,5 +27,36 @@ def load_pumadyn32nm():
     return train_x, train_y, test_x, test_y
 
 
+def load_abalone():
+    fname = DATA_PATH + 'abalone_split.mat'
+    train_x = sio.loadmat(fname)['Xtrain']
+    train_y = sio.loadmat(fname)['Ytrain'].flatten()
+    test_x = sio.loadmat(fname)['Xtest']
+    test_y = sio.loadmat(fname)['Ytest'].flatten()
+    return train_x, train_y, test_x, test_y
+
+
+def load_boston():
+    fname = DATA_PATH + 'data_boston.mat'
+    train_x = sio.loadmat(fname)['X']
+    train_y = sio.loadmat(fname)['y'].flatten()
+    test_x = sio.loadmat(fname)['Xstar']
+    test_y = sio.loadmat(fname)['ystar'].flatten()
+    return train_x, train_y, test_x, test_y
+
+
+def load_dataset(dataset):
+    if dataset == PUMADYN32NM:
+        return load_pumadyn32nm()
+    elif dataset == KIN40K:
+        return load_kin40k()
+    elif dataset == BOSTON:
+        return load_boston()
+    elif dataset == ABALONE:
+        return load_abalone()
+    else:
+        raise ValueError(dataset)
+
+
 if __name__ == '__main__':
-    pass
+    load_abalone()

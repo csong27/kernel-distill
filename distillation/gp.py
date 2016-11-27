@@ -6,6 +6,7 @@ class GaussianProcess(object):
         self.gpml = GPML()
 
     def train_exact(self, x, y, hyp, n_iter=100, mean='meanZero', cov='covSEiso'):
+        print '\nTraining with EXACT'
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
@@ -16,13 +17,15 @@ class GaussianProcess(object):
         return hyp
 
     def predict_exact(self, x, y, xstar, hyp, mean='meanZero', cov='covSEiso'):
+        print '\nPredicting with EXACT'
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
-        self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, verbose=0)
+        self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, verbose=1)
         return self.gpml.predict(xstar, x, y, return_var=True, verbose=1)
 
     def train_fitc(self, x, y, xu, hyp, n_iter=100, mean='meanZero', cov='covSEiso'):
+        print '\nTraining with FITC'
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
@@ -35,6 +38,7 @@ class GaussianProcess(object):
         return hyp
 
     def predict_fitc(self, x, y, xu, xstar, hyp, mean='meanZero', cov='covSEiso'):
+        print '\nPredicting with FITC'
         inf = 'infGaussLik'
         input_dim = x.shape[1]
         opt = {}
@@ -45,18 +49,20 @@ class GaussianProcess(object):
         return self.gpml.predict(xstar, return_var=True, verbose=1)
 
     def train_kiss(self, x, y, k, hyp, opt, n_iter=100, mean='meanZero', cov='covSEiso'):
+        print '\nTraining with KISS'
         k = float(k)
         inf = 'infGrid'
         input_dim = x.shape[1]
         grid_kwargs = {'eq': 1, 'k': k}
         self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, grid_kwargs=grid_kwargs)
         self.gpml.update_data('tr', x, y)
-        self.gpml.update_grid('tr')
+        self.gpml.update_grid('tr', with_proj='proj' in hyp)
         self.gpml.train(n_iter=n_iter, verbose=1)
         hyp = self.gpml.eng.pull('hyp')
         return hyp
 
     def predict_kiss(self, x, y, xstar, k, hyp, opt, mean='meanZero', cov='covSEiso', fast=True):
+        print '\nPredicting with KISS'
         inf = 'infGrid'
         input_dim = x.shape[1]
         grid_kwargs = {'eq': 1, 'k': float(k)}
@@ -65,7 +71,7 @@ class GaussianProcess(object):
         self.gpml.configure(input_dim=input_dim, hyp=hyp, opt=opt, mean=mean, cov=cov, inf=inf, tile_hyp_cov=False,
                             grid_kwargs=grid_kwargs)
         self.gpml.update_data('tr', x, y)
-        self.gpml.update_grid('tr')
+        self.gpml.update_grid('tr', with_proj='proj' in hyp)
         if fast:
             return self.gpml.fast_predict(xstar, return_var=True, verbose=1)
         else:

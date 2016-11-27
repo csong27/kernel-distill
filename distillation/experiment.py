@@ -1,152 +1,171 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from kernel_distill import Distillation
-from kernel import SEiso
+from eval_metrics import smse, smae
+from kernel import SEard, SEiso
 from gp import GaussianProcess
+from data_utils import *
+from sklearn.preprocessing import StandardScaler
+import scipy.io as sio
+import numpy as np
+import scipy.linalg as sl
+import cPickle as pkl
+import os
+
+np.random.seed(21345)
 
 
-def experiment1D():
+def get_fitc_kernel(x, xu, hyp, kernel):
+    m = xu.shape[0]
+    K_xu = kernel.evaluate(x, xu, hyp)
+    K_uu = kernel.evaluate(xu, xu, hyp)
+    K_xx = kernel.evaluate(x, x, hyp)
+    L_uu = sl.cholesky(K_uu + 1e-6 * np.eye(m), lower=True)
+    K_uu_inv = sl.cho_solve((L_uu, True), np.eye(m))
+    K_sor = reduce(np.dot, [K_xu, K_uu_inv, K_xu.T])
+    K_diag = np.diag(K_xx - K_sor)
+    K_fitc = K_sor + np.diag(K_diag)
+    return K_fitc
+
+
+def load_trained_hyp(dataset=PUMADYN32NM):
+    fname = '../model/hyp_{}.mat'.format(dataset)
+    hyp_mat = sio.loadmat(fname)['hyp']
+    hyp_cov = hyp_mat['cov'][0][0].flatten()
+    hyp_lik = hyp_mat['lik'][0][0][0][0]
+    hyp = {'mean': [], 'lik': float(hyp_lik), 'cov': hyp_cov.astype(float)}
+    return hyp
+
+
+def experiment(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', cov='covSEard', width=20,
+               standardize=True, load_trained=False):
+    train_x, train_y, test_x, test_y = load_dataset(dataset)
+    if standardize:
+        scaler = StandardScaler()
+        train_x = scaler.fit_transform(train_x)
+        test_x = scaler.transform(test_x)
+
+    n, d = train_x.shape
+    print 'Distilling with {} data points and {} dimension'.format(n, d)
+    # get GP functionality
     gp = GaussianProcess()
-    # setup data
-    n = 1000
-    m = 50
-    f = lambda x: np.sin(x) * np.exp(-x**2 / 50)
-    X = np.random.uniform(-10, 10, size=n)
-    X = np.sort(X)
-    y = f(X) + np.random.normal(0, 1, size=n)
-    y -= np.mean(y)
+    # subtract mean
+    train_y -= np.mean(train_y)
+    test_y -= np.mean(train_y)
+    # initialization
+    hyp_lik = float(0.5 * np.log(np.var(train_y) / 4))
+    if cov == 'covSEard':
+        init_ell = np.log((np.max(train_x, axis=0) - np.min(train_x, axis=0)) / 2)
+        hyp_cov = np.append(init_ell, [0.5 * np.log(np.var(train_y))])
+    else:
+        hyp_cov = np.asarray([np.log(2)] * 2)
 
-    x_min, x_max = np.min(X), np.max(X)
-    U = np.linspace(x_min, x_max, m).reshape(-1, 1)
-
-    X = X.reshape(-1, 1)
-    hyp_cov = np.asarray([np.log(1), np.log(2)])
-    hyp_lik = float(np.log(1))
     hyp_old = {'mean': [], 'lik': hyp_lik, 'cov': hyp_cov}
-    hyp = gp.train_exact(X, y.reshape(-1, 1), hyp_old)
-    hyp_cov = hyp['cov'][0]
+    # train the kernel to reduce from
+    # load hyp if trained already
+    xu = np.random.choice(n, m, replace=False)
+    xu = train_x[xu]
+    hyp_fname = '../model/{}_hyp_{}.pkl'.format(dataset, reduce_from)
+
+    if load_trained and os.path.exists(hyp_fname):
+        print 'Loady hyperparams from {}'.format(hyp_fname)
+        f = open(hyp_fname, 'rb')
+        hyp = pkl.load(f)
+        f.close()
+    else:
+        print 'Training the given kernel with {}'.format(reduce_from)
+        if reduce_from == 'fitc':
+            if dataset in {PUMADYN32NM, KIN40K}:
+                hyp = load_trained_hyp(dataset)
+            else:
+                hyp = gp.train_fitc(train_x, train_y.reshape(-1, 1), xu, hyp_old, cov=cov)
+            test_mean, test_var = gp.predict_fitc(train_x, train_y.reshape(-1, 1),
+                                                  xu=xu, xstar=test_x, hyp=hyp, cov=cov)
+            f = open(hyp_fname, 'wb')
+            pkl.dump(hyp, f, -1)
+            f.close()
+        elif reduce_from == 'exact':
+            hyp = gp.train_exact(train_x, train_y.reshape(-1, 1), hyp_old, cov=cov, n_iter=100)
+            test_mean, test_var = gp.predict_exact(train_x, train_y.reshape(-1, 1), xstar=test_x, hyp=hyp, cov=cov)
+            f = open(hyp_fname, 'wb')
+            pkl.dump(hyp, f, -1)
+            f.close()
+        else:
+            raise ValueError(reduce_from)
+
+        print smae(test_y, test_mean), smse(test_y, test_mean)
+
+    hyp_cov = hyp['cov'].flatten()
     sigmasq = np.exp(2 * hyp['lik'])
-    kernel = SEiso()
-    distill = Distillation(X=X, y=y, U=U, kernel=kernel, hyp=hyp_cov, num_iters=10, eta=5e-4,
-                           sigmasq=sigmasq, width=10, use_kmeans=True, optimizer='sgd')
+    kernel = SEard() if cov == 'covSEard' else SEiso()
+
+    # distill the kernel
+    distill = Distillation(X=train_x, y=train_y, U=xu, kernel=kernel, hyp=hyp_cov, num_iters=0, eta=1e-2,
+                           sigmasq=sigmasq, width=width, use_kmeans=use_kmeans, optimizer='adagrad')
     distill.grad_descent()
     distill.precompute(use_true_K=False)
 
-    xx = np.linspace(x_min, x_max, 2 * n)
-    mm_true, vv_true = gp.predict_exact(X, y.reshape(-1, 1), xx.reshape(-1, 1), hyp=hyp)
+    # plt.pcolor(np.abs(distill.diff_to_K()[:2000, :2000]))
+    # plt.colorbar()
+    # plt.show()
 
-    mm = []
-    vv = []
-
-    opt = {'cg_maxit': 500, 'cg_tol': 1e-5}
-    k = n / 2
-    hyp = gp.train_kiss(X, y.reshape(-1, 1), k, hyp=hyp_old, opt=opt)
-    mm_kiss, vv_kiss = gp.predict_kiss(X, y.reshape(-1, 1), xx.reshape(-1, 1), k, hyp=hyp, opt=opt)
-
-    for xstar in xx:
-        xstar = np.asarray([xstar])
-        vv.append(distill.predict_variance(xstar, width=10))
-        mm.append(distill.predict_mean(xstar, width=10))
+    mm, vv = [], []
+    for xstar in test_x:
+        xstar = xstar.reshape(1, d)
+        mstar, vstar = distill.predict(xstar, width=width)
+        vv.append(vstar)
+        mm.append(mstar)
 
     mm = np.asarray(mm).flatten()
-    vv = np.asarray(vv).flatten()
-    mm_kiss = np.asarray(mm_kiss).flatten()
-    vv_kiss = np.asarray(vv_kiss).flatten()
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
-    ax1.fill_between(xx, mm - np.sqrt(vv) * 2, mm + np.sqrt(vv) * 2, color='gray', alpha=.5)
-    ax1.plot(xx, mm_true, color='y', lw=3, label='exact mean')
-    ax1.plot(xx, mm, color='r', lw=3, label='distill mean', ls='dotted')
-    ax1.plot(xx, mm_kiss, color='m', lw=3, label='kiss mean', ls=':')
-    ax1.plot(xx, f(xx), lw=3, label='true value', ls='dashed')
-    ax1.scatter(X, y, color='g', label='train data', marker='+')
-    ax1.set_xlim([x_min, x_max])
-    ax1.legend()
-
-    ax2.plot(xx, vv_kiss, color='m', lw=2, label='kiss var', ls=':')
-    ax2.plot(xx, vv_true, color='y', lw=2, label='exact var')
-    ax2.plot(xx, vv, color='r', lw=2, label='distill var', ls='dotted')
-    ax2.set_xlim([x_min, x_max])
-    ax2.legend()
-    plt.show()
+    print 'Distill Error:'
+    print_error(test_y, mm)
+    print 'Mean error to true K:'
+    print_error(test_mean, mm)
 
 
-def experiment2D():
+def experiment_kiss(dataset=PUMADYN32NM, m=100, proj_d=2, cov='covSEard', standardize=True, proj=None):
+    assert proj in {None, 'norm', 'orth'}
+    train_x, train_y, test_x, test_y = load_dataset(dataset)
+    if standardize:
+        scaler = StandardScaler()
+        train_x = scaler.fit_transform(train_x)
+        test_x = scaler.transform(test_x)
+
+    n, d = train_x.shape
+    print 'Distilling with {} data points and {} dimension'.format(n, d)
+    # get GP functionality
     gp = GaussianProcess()
-    # setup data
-    n = 100
-    m = 30
-    f = lambda x: np.sin(x[:, 1]) + x[:, 0]
-    X = np.random.uniform(-3, 3, size=(n, 2))
-    y = f(X) + np.random.normal(0, 0.1, size=n)
-    mean_y = np.mean(y)
-    y -= mean_y
-    U = X[np.random.choice(n, m, replace=False)]
+    # subtract mean
+    train_y -= np.mean(train_y)
+    test_y -= np.mean(train_y)
+    # projection matrix
+    P = np.random.normal(size=(proj_d, d))
+    # initialization
+    hyp_lik = float(0.5 * np.log(np.var(train_y) / 4))
+    if cov == 'covSEard':
+        init_x = np.dot(train_x, P.T)
+        init_ell = np.log((np.max(init_x, axis=0) - np.min(init_x, axis=0)) / 2)
+        hyp_cov = np.append(init_ell, [0.5 * np.log(np.var(train_y))])
+    else:
+        hyp_cov = np.asarray([np.log(2)] * 2)
 
-    # setup test data
-    x1, x2 = np.mgrid[-4: 4: 100j, -4: 4: 100j]
-    xx = np.vstack([x1.ravel(), x2.ravel()])
-    # print xx.shape
-    xx = xx.T
-    yy = f(xx)
-    yy -= mean_y
-
-    hyp_cov = np.asarray([np.log(2), np.log(2)])
-    hyp_lik = float(np.log(2))
-    hyp_old = {'mean': [], 'lik': hyp_lik, 'cov': hyp_cov}
-    print 'Training exact'
-    hyp = gp.train_exact(X, y.reshape(-1, 1), hyp_old, n_iter=100)
-    mm_true, vv_true = gp.predict_exact(X, y.reshape(-1, 1), xx, hyp=hyp)
-    print '--------------------'
-    print hyp
-    hyp_cov = hyp['cov'][0]
-    sigmasq = np.exp(2 * hyp['lik'])
-    kernel = SEiso()
-    distill = Distillation(X=X, y=y, U=U, kernel=kernel, hyp=hyp_cov, num_iters=100, eta=2e-6,
-                           sigmasq=sigmasq, width=10, use_kmeans=True, optimizer='sgd')
-    distill.grad_descent()
-    distill.precompute(use_true_K=False)
-
-    mm = []
-    vv = []
+    hyp_old = {'mean': [], 'lik': hyp_lik, 'cov': hyp_cov, 'proj': P}
     opt = {'cg_maxit': 500, 'cg_tol': 1e-5}
-    k = m * 2
-    hyp = gp.train_kiss(X, y.reshape(-1, 1), k, hyp=hyp_old, opt=opt, n_iter=1)
-    mm_kiss, vv_kiss = gp.predict_kiss(X, y.reshape(-1, 1), xx, k, hyp=hyp, opt=opt)
+    if proj is not None:
+        opt['proj'] = proj
+    hyp = gp.train_kiss(train_x, train_y.reshape(-1, 1), k=m, hyp=hyp_old, opt=opt, n_iter=100)
+    test_mean, test_var = gp.predict_kiss(train_x, train_y.reshape(-1, 1), k=m, xstar=test_x, opt=opt, hyp=hyp, cov=cov)
 
-    for xstar in xx:
-        xstar = xstar.reshape(-1, 2)
-        vv.append(distill.predict_variance(xstar, width=10))
-        mm.append(distill.predict_mean(xstar, width=10))
+    print 'Fast KISS error:'
+    print_error(test_y, test_mean)
+    test_mean, test_var = gp.predict_kiss(train_x, train_y.reshape(-1, 1), fast=False,
+                                          k=m, xstar=test_x, opt=opt, hyp=hyp, cov=cov)
+    print 'Slow KISS error:'
+    print_error(test_y, test_mean)
 
-    mm = np.asarray(mm).flatten()
-    vv = np.asarray(vv).flatten()
-    mm_kiss = np.asarray(mm_kiss).flatten()
-    vv_kiss = np.asarray(vv_kiss).flatten()
 
-    # plt.imshow(mm.reshape(100, 100))
-    # plt.show()
-    #
-    # plt.imshow(mm_kiss.reshape(100, 100))
-    # plt.show()
+def print_error(target, predictions):
+    print "SMAE: {}, SMSE: {}".format(smae(target, predictions), smse(target, predictions))
 
-    f_mae_distill = np.abs(mm - yy)     # / np.abs(yy - np.mean(yy))
-    print np.mean(f_mae_distill)
-
-    f_mae_kiss = np.abs(mm_kiss - yy) # / np.abs(yy - np.mean(yy))
-    print np.mean(f_mae_kiss)
-
-    mean_mae_distill = np.abs(mm - mm_true) # / np.abs(mm_true - np.mean(mm_true))
-    print np.mean(mean_mae_distill)
-
-    var_mae_distill = np.abs(vv - vv_true) # / np.abs(vv_true - np.mean(vv_true))
-    print np.mean(var_mae_distill)
-
-    mean_mae_kiss = np.abs(mm_kiss - mm_true) # / np.abs(mm_true - np.mean(mm_true))
-    print np.mean(mean_mae_kiss)
-
-    var_mae_kiss = np.abs(vv_kiss - vv_true) # / np.abs(vv_true - np.mean(vv_true))
-    print np.mean(var_mae_kiss)
 
 if __name__ == '__main__':
-    experiment2D()
+    experiment_kiss(dataset=BOSTON, m=100, cov='covSEiso', proj='orth', proj_d=2)
