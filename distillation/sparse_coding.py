@@ -1,32 +1,25 @@
 import numpy as np
-from kernel import SEiso
-from sklearn.decomposition import SparseCoder
 
 
-def sp():
-    n = 500
-    dim = 1
-    k = 70
-    m = k ** dim
-    X = np.random.normal(0, 5, size=(n, dim))
-    X = np.sort(X, axis=0)
-    inducing = np.random.choice(n, m, replace=False)
-    inducing = np.sort(inducing)
-    U = X[inducing]
-    hyp = [np.log(20), np.log(2)]
-    kernel = SEiso()
-    K_xx = kernel.evaluate(X, X, hyp)
-    K_uu = kernel.evaluate(U, U, hyp)
-    K_xu = kernel.evaluate(X, U, hyp)
-    coder = SparseCoder(dictionary=K_uu, transform_algorithm='lasso_lars', transform_alpha=1e-5, split_sign=True)
-    W = coder.fit_transform(K_xu)
-    K_approx = reduce(np.dot, [W, K_uu, W.T])
-    print np.linalg.norm(K_xx - K_approx)
+def q3():
+    A = [[0, 0, 1, 1],
+         [0, 0, 1, 1],
+         [1, 1, 0, 0],
+         [1, 1, 0, 0]]
 
-    indices = np.arange(len(W[0]))
-    for i, row in enumerate(W):
-        print i, indices[row > 0]
+    L = 2 * np.eye(4) - A
+    L = np.asarray(L)
+    v, w = np.linalg.eig(L)
+    print w[:, 2]
+    print np.dot(L, w[:, 2])
+
+
+def q2(k):
+    beta1 = (k - 1) / (1.01 * k)
+    beta2 = 1 / 1.01
+    f = lambda beta: np.exp(-0.505*k * (beta* np.log(beta) - beta + 1))
+    print 0.5 * (f(beta1) + f(beta2))
 
 
 if __name__ == '__main__':
-    sp()
+    q2(120527)

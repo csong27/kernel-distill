@@ -179,7 +179,8 @@ class Distillation(object):
         return pred_mean, pred_var
 
     def get_W_star(self, x_star, ind, sample_ratio=2):
-        sampled_ind = self.nearest_neighbor(x_star, self.width * sample_ratio)
+        sample_size = np.min([self.width * sample_ratio, self.m])
+        sampled_ind = self.nearest_neighbor(x_star, sample_size)
         K_xstar_u = self.kernel.evaluate(x_star, self.U[sampled_ind], hyp=self.hyp)
         reg = linear_model.LinearRegression()
         reg.fit(self.KI[ind].T[sampled_ind], K_xstar_u.flatten())

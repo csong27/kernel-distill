@@ -4,6 +4,7 @@ from kernel import SEard, SEiso
 from gp import GaussianProcess
 from data_utils import *
 from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
 import scipy.io as sio
 import numpy as np
 import scipy.linalg as sl
@@ -35,8 +36,8 @@ def load_trained_hyp(dataset=PUMADYN32NM):
     return hyp
 
 
-def experiment(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', cov='covSEard', width=20,
-               standardize=True, load_trained=False):
+def experiment_distill(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', cov='covSEard', width=20,
+                       standardize=True, load_trained=False):
     train_x, train_y, test_x, test_y = load_dataset(dataset)
     if standardize:
         scaler = StandardScaler()
@@ -70,6 +71,7 @@ def experiment(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', 
         f = open(hyp_fname, 'rb')
         hyp = pkl.load(f)
         f.close()
+        test_mean, test_var = gp.predict_exact(train_x, train_y.reshape(-1, 1), xstar=test_x, hyp=hyp, cov=cov)
     else:
         print 'Training the given kernel with {}'.format(reduce_from)
         if reduce_from == 'fitc':
@@ -83,22 +85,24 @@ def experiment(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', 
             pkl.dump(hyp, f, -1)
             f.close()
         elif reduce_from == 'exact':
-            hyp = gp.train_exact(train_x, train_y.reshape(-1, 1), hyp_old, cov=cov, n_iter=100)
-            test_mean, test_var = gp.predict_exact(train_x, train_y.reshape(-1, 1), xstar=test_x, hyp=hyp, cov=cov)
+            if dataset in {PUMADYN32NM, KIN40K}:
+                hyp = load_trained_hyp(dataset)
+            else:
+                hyp = gp.train_exact(train_x, train_y.reshape(-1, 1), hyp_old, cov=cov, n_iter=100)
             f = open(hyp_fname, 'wb')
             pkl.dump(hyp, f, -1)
             f.close()
         else:
             raise ValueError(reduce_from)
-
-        print smae(test_y, test_mean), smse(test_y, test_mean)
+        print '{} Error:'.format(reduce_from.capitalize())
+        print_error(test_y, test_mean)
 
     hyp_cov = hyp['cov'].flatten()
     sigmasq = np.exp(2 * hyp['lik'])
     kernel = SEard() if cov == 'covSEard' else SEiso()
 
     # distill the kernel
-    distill = Distillation(X=train_x, y=train_y, U=xu, kernel=kernel, hyp=hyp_cov, num_iters=0, eta=1e-2,
+    distill = Distillation(X=train_x, y=train_y, U=xu, kernel=kernel, hyp=hyp_cov, num_iters=0, eta=1e-3,
                            sigmasq=sigmasq, width=width, use_kmeans=use_kmeans, optimizer='adagrad')
     distill.grad_descent()
     distill.precompute(use_true_K=False)
@@ -118,8 +122,11 @@ def experiment(dataset=PUMADYN32NM, use_kmeans=True, m=100, reduce_from='fitc', 
 
     print 'Distill Error:'
     print_error(test_y, mm)
+
     print 'Mean error to true K:'
     print_error(test_mean, mm)
+
+    return smse(test_mean, mm), smse(test_y, test_mean), smse(test_y, mm)
 
 
 def experiment_kiss(dataset=PUMADYN32NM, m=100, proj_d=2, cov='covSEard', standardize=True, proj=None):
@@ -131,7 +138,7 @@ def experiment_kiss(dataset=PUMADYN32NM, m=100, proj_d=2, cov='covSEard', standa
         test_x = scaler.transform(test_x)
 
     n, d = train_x.shape
-    print 'Distilling with {} data points and {} dimension'.format(n, d)
+    print 'Train KISS with {} data points and {} dimension'.format(n, d)
     # get GP functionality
     gp = GaussianProcess()
     # subtract mean
@@ -146,7 +153,7 @@ def experiment_kiss(dataset=PUMADYN32NM, m=100, proj_d=2, cov='covSEard', standa
         init_ell = np.log((np.max(init_x, axis=0) - np.min(init_x, axis=0)) / 2)
         hyp_cov = np.append(init_ell, [0.5 * np.log(np.var(train_y))])
     else:
-        hyp_cov = np.asarray([np.log(2)] * 2)
+        hyp_cov = np.asarray([np.log(5), 0.5 * np.log(np.var(train_y))])
 
     hyp_old = {'mean': [], 'lik': hyp_lik, 'cov': hyp_cov, 'proj': P}
     opt = {'cg_maxit': 500, 'cg_tol': 1e-5}
@@ -155,11 +162,7 @@ def experiment_kiss(dataset=PUMADYN32NM, m=100, proj_d=2, cov='covSEard', standa
     hyp = gp.train_kiss(train_x, train_y.reshape(-1, 1), k=m, hyp=hyp_old, opt=opt, n_iter=100)
     test_mean, test_var = gp.predict_kiss(train_x, train_y.reshape(-1, 1), k=m, xstar=test_x, opt=opt, hyp=hyp, cov=cov)
 
-    print 'Fast KISS error:'
-    print_error(test_y, test_mean)
-    test_mean, test_var = gp.predict_kiss(train_x, train_y.reshape(-1, 1), fast=False,
-                                          k=m, xstar=test_x, opt=opt, hyp=hyp, cov=cov)
-    print 'Slow KISS error:'
+    print 'KISS error:'
     print_error(test_y, test_mean)
 
 
@@ -167,5 +170,24 @@ def print_error(target, predictions):
     print "SMAE: {}, SMSE: {}".format(smae(target, predictions), smse(target, predictions))
 
 
+def analysis_bandwidth():
+    widths = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    mean_err, var_err, target_err = [], [], []
+    for width in widths:
+        smse_mean, smse_var, smse_target = experiment_distill(dataset=BOSTON, m=100, cov='covSEard',
+                                                              reduce_from='exact', width=width, load_trained=True)
+        mean_err.append(smse_mean)
+        var_err.append(smse_var)
+        target_err.append(smse_target)
+
+    plt.plot(widths, mean_err, lw=2, label='mean', marker='v')
+    plt.plot(widths, var_err, lw=2, label='exact', c='g', marker='s')
+    plt.plot(widths, target_err, lw=2, label='target', c='r', marker='o')
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 if __name__ == '__main__':
-    experiment_kiss(dataset=BOSTON, m=100, cov='covSEiso', proj='orth', proj_d=2)
+    # experiment_distill(dataset=KIN40K, m=2000, cov='covSEard', reduce_from='exact', width=30)
+    # experiment_kiss(dataset=KIN40K, m=500, cov='covSEiso', proj=None, proj_d=2)
+    analysis_bandwidth()

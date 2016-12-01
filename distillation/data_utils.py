@@ -59,4 +59,5 @@ def load_dataset(dataset):
 
 
 if __name__ == '__main__':
-    load_abalone()
+    a, _, c, _ = load_boston()
+    print a.shape, c.shape
